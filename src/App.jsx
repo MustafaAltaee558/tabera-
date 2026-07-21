@@ -1138,9 +1138,32 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
 
+  const saveToServer = async (productsData, hashVal, rateVal) => {
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return;
+    }
+    try {
+      const payload = {
+        products: productsData,
+        config: {
+          adminPasswordHash: hashVal,
+          exchangeRate: rateVal
+        }
+      };
+      await fetch('/api/save-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.error("Failed to save changes to local file system:", e);
+    }
+  };
+
   const persistProducts = async (next) => {
     setProducts(next);
     await safeStorage.set(PRODUCTS_KEY, JSON.stringify(next));
+    await saveToServer(next, adminHash, exchangeRate);
   };
 
   const startNew = () => { setDraft(emptyDraft); setEditing("new"); };
@@ -1208,10 +1231,12 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
           onSavedPassword={async (newHash) => {
             setAdminHash(newHash);
             await safeStorage.set(ADMIN_HASH_KEY, newHash);
+            await saveToServer(products, newHash, exchangeRate);
           }}
           onSavedRate={async (newRate) => {
             setExchangeRate(newRate);
             await safeStorage.set(EXCHANGE_RATE_KEY, String(newRate));
+            await saveToServer(products, adminHash, newRate);
           }}
         />
       ) : (
@@ -1314,13 +1339,30 @@ export default function App() {
   };
 
   const reloadData = async () => {
-    let p = generateMockData(1400);
+    let p = [];
     try {
-      const r = await safeStorage.get(PRODUCTS_KEY);
-      const parsed = JSON.parse(r.value);
-      if (Array.isArray(parsed) && parsed.length) p = parsed;
-      else await safeStorage.set(PRODUCTS_KEY, JSON.stringify(p));
-    } catch {
+      const res = await fetch('./products.json');
+      if (res.ok) {
+        const parsed = await res.json();
+        if (Array.isArray(parsed) && parsed.length) {
+          p = parsed;
+          await safeStorage.set(PRODUCTS_KEY, JSON.stringify(p));
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to fetch products.json, falling back to local storage:", e);
+    }
+
+    if (!p.length) {
+      try {
+        const r = await safeStorage.get(PRODUCTS_KEY);
+        const parsed = JSON.parse(r.value);
+        if (Array.isArray(parsed) && parsed.length) p = parsed;
+      } catch {}
+    }
+
+    if (!p.length) {
+      p = generateMockData(1400);
       await safeStorage.set(PRODUCTS_KEY, JSON.stringify(p));
     }
     setProducts(p);
@@ -1330,26 +1372,43 @@ export default function App() {
     let cancelled = false;
     (async () => {
       const fallbackHash = await sha256Hex(DEFAULT_ADMIN_PASSWORD);
-      if (!cancelled) setAdminHash(fallbackHash);
+      let activeHash = fallbackHash;
+      let activeRate = DEFAULT_EXCHANGE_RATE;
+
+      try {
+        const configRes = await fetch('./config.json');
+        if (configRes.ok) {
+          const configData = await configRes.json();
+          if (configData.adminPasswordHash) {
+            activeHash = configData.adminPasswordHash;
+            await safeStorage.set(ADMIN_HASH_KEY, activeHash);
+          }
+          if (configData.exchangeRate) {
+            activeRate = Number(configData.exchangeRate);
+            await safeStorage.set(EXCHANGE_RATE_KEY, String(activeRate));
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to fetch config.json, falling back to local storage:", e);
+      }
+
+      if (!cancelled) {
+        setAdminHash(activeHash);
+        setExchangeRate(activeRate);
+      }
 
       await reloadData();
 
       try {
         const r = await safeStorage.get(ADMIN_HASH_KEY);
         if (r?.value && !cancelled) setAdminHash(r.value);
-        else await safeStorage.set(ADMIN_HASH_KEY, fallbackHash);
-      } catch {
-        await safeStorage.set(ADMIN_HASH_KEY, fallbackHash);
-      }
+      } catch {}
 
       try {
         const rateRes = await safeStorage.get(EXCHANGE_RATE_KEY);
         const parsedRate = Number(rateRes?.value);
         if (parsedRate && parsedRate > 0 && !cancelled) setExchangeRate(parsedRate);
-        else await safeStorage.set(EXCHANGE_RATE_KEY, String(DEFAULT_EXCHANGE_RATE));
-      } catch {
-        await safeStorage.set(EXCHANGE_RATE_KEY, String(DEFAULT_EXCHANGE_RATE));
-      }
+      } catch {}
 
       if (!cancelled) {
         setLoading(false);
