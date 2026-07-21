@@ -1137,78 +1137,7 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
   const [draft, setDraft] = useState(emptyDraft);
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
-  const [githubToken, setGithubToken] = useState("");
-  const [showTokenPrompt, setShowTokenPrompt] = useState(false);
-
-  const publishToGitHub = async (token) => {
-    const owner = "MustafaAltaee558";
-    const repo = "tabera-";
-    const branch = "main";
-    
-    setSaving(true);
-    notify("جاري الاتصال بـ GitHub...", "info");
-    
-    try {
-      const getFileSha = async (path) => {
-        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, {
-          headers: {
-            "Authorization": `token ${token}`,
-            "Accept": "application/vnd.github+json"
-          }
-        });
-        if (!res.ok) throw new Error(`Failed to get SHA for ${path}`);
-        const data = await res.json();
-        return data.sha;
-      };
-
-      const updateFile = async (path, content, sha, message) => {
-        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
-          method: "PUT",
-          headers: {
-            "Authorization": `token ${token}`,
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            message,
-            content: btoa(unescape(encodeURIComponent(content))),
-            sha,
-            branch
-          })
-        });
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.message || `Failed to update ${path}`);
-        }
-      };
-
-      const productsSha = await getFileSha("public/products.json");
-      const configSha = await getFileSha("public/config.json");
-
-      const configContent = JSON.stringify({
-        adminPasswordHash: adminHash,
-        exchangeRate: exchangeRate
-      }, null, 2);
-
-      const productsContent = JSON.stringify(products, null, 2);
-
-      await updateFile("public/products.json", productsContent, productsSha, "Update products database from Live Admin Panel");
-      await updateFile("public/config.json", configContent, configSha, "Update config from Live Admin Panel");
-
-      notify("تم نشر التعديلات بنجاح! ستظهر للجميع خلال دقيقة واحدة.", "ok");
-      setShowTokenPrompt(false);
-    } catch (e) {
-      console.error(e);
-      notify(`فشل النشر: ${e.message}`, "error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const saveToServer = async (productsData, hashVal, rateVal) => {
-    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      return;
-    }
     try {
       const payload = {
         products: productsData,
@@ -1217,13 +1146,17 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
           exchangeRate: rateVal
         }
       };
-      await fetch('/api/save-data', {
+      const res = await fetch('/api/save-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+      if (!res.ok) {
+        throw new Error(`Failed to save database: ${res.statusText}`);
+      }
     } catch (e) {
-      console.error("Failed to save changes to local file system:", e);
+      console.error("Failed to save changes:", e);
+      notify("حدث خطأ أثناء حفظ التعديلات على السيرفر", "error");
     }
   };
 
@@ -1283,12 +1216,6 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
           </button>
           <button onClick={() => setTab("security")} className={`cat-pill ${tab === "security" ? "active" : ""}`}>
             <TrendingUp className="w-4 h-4 text-amber-500" /> البورصة والرمز السري
-          </button>
-          <button 
-            onClick={() => setShowTokenPrompt(true)} 
-            className="cat-pill bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 shadow-sm flex items-center gap-1.5 font-extrabold border-0"
-          >
-            <ShieldCheck className="w-4 h-4" /> نشر التعديلات للجميع (GitHub)
           </button>
           <button onClick={onExit} className="cat-pill border-red-200 text-red-600 hover:bg-red-50">
             <LogOut className="w-4 h-4" /> خروج
@@ -1382,63 +1309,6 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
             </div>
           </div>
         </>
-      )}
-
-      {showTokenPrompt && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-slate-200 shadow-2xl relative text-right">
-            <button 
-              onClick={() => setShowTokenPrompt(false)} 
-              className="absolute top-4 left-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <div className="text-center mb-6">
-              <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <h3 className="font-black text-lg sm:text-xl text-slate-900">نشر التعديلات للجميع</h3>
-              <p className="text-xs text-slate-500 font-bold mt-1">
-                لتحديث الموقع لدى جميع العملاء، يرجى إدخال رمز الوصول الخاص بك من GitHub (PAT).
-              </p>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-slate-700 mb-2">رمز الوصول الخاص بك (Token):</label>
-                <input
-                  type="password"
-                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxx"
-                  value={githubToken}
-                  onChange={(e) => setGithubToken(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:border-emerald-500 font-mono text-center"
-                />
-              </div>
-              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3 text-[11px] text-amber-800 font-bold leading-relaxed">
-                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-                <p>
-                  رمز الوصول (Token) يتم استخدامه لتحديث قاعدة البيانات مباشرة على GitHub. يتم تشفيره وإرساله بأمان للمستودع فقط، ولا يتم حفظه في أي مكان لحماية حسابك.
-                </p>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  disabled={saving || !githubToken}
-                  onClick={() => publishToGitHub(githubToken)}
-                  className="flex-1 py-3 rounded-xl bg-[#0F172A] text-white font-extrabold text-sm hover:bg-slate-800 disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  تأكيد ونشر التحديثات
-                </button>
-                <button
-                  disabled={saving}
-                  onClick={() => setShowTokenPrompt(false)}
-                  className="px-5 py-3 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-sm"
-                >
-                  إلغاء
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
