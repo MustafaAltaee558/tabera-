@@ -1142,7 +1142,7 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
   const saveToServer = async (productsData, hashVal, rateVal) => {
     try {
       if (productsData) {
-        await setDoc(doc(db, "catalog", "products"), { items: productsData });
+        await setDoc(doc(db, "catalog", "products"), { items: serializeProducts(productsData) });
       }
       if (hashVal !== undefined || rateVal !== undefined) {
         await setDoc(doc(db, "catalog", "config"), {
@@ -1310,6 +1310,42 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
   );
 };
 
+const serializeProducts = (productsList) => {
+  if (!Array.isArray(productsList)) return [];
+  return productsList.map(p => {
+    if (Array.isArray(p.specifications)) {
+      return {
+        ...p,
+        specifications: p.specifications.map(s => {
+          if (Array.isArray(s)) {
+            return { k: s[0] || "", v: s[1] || "" };
+          }
+          return s;
+        })
+      };
+    }
+    return p;
+  });
+};
+
+const deserializeProducts = (productsList) => {
+  if (!Array.isArray(productsList)) return [];
+  return productsList.map(p => {
+    if (Array.isArray(p.specifications)) {
+      return {
+        ...p,
+        specifications: p.specifications.map(s => {
+          if (s && typeof s === 'object' && 'k' in s && 'v' in s) {
+            return [s.k, s.v];
+          }
+          return s;
+        })
+      };
+    }
+    return p;
+  });
+};
+
 /* MAIN APP COMPONENT */
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -1359,12 +1395,12 @@ export default function App() {
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (Array.isArray(data.items)) {
-          setProducts(data.items);
+          setProducts(deserializeProducts(data.items));
           setLoading(false);
         }
       } else {
         const defaultProducts = generateMockData(1400);
-        await setDoc(doc(db, "catalog", "products"), { items: defaultProducts });
+        await setDoc(doc(db, "catalog", "products"), { items: serializeProducts(defaultProducts) });
         if (!cancelled) {
           setProducts(defaultProducts);
           setLoading(false);
