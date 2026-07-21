@@ -266,7 +266,7 @@ const TabiraLogo = ({ dark }) => (
     <div className="relative group shrink-0">
       <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full p-0.5 bg-gradient-to-tr from-[#D31424] via-[#111315] to-[#D31424] shadow-md flex items-center justify-center overflow-hidden">
         <img
-          src="/tabira-logo.jpg"
+          src="./tabira-logo.jpg"
           alt="TABIRA"
           className="w-full h-full object-cover rounded-full bg-white"
           onError={(e) => {
@@ -353,7 +353,7 @@ const SplashScreen = ({ onFinish }) => {
           <div className="relative w-36 h-36 sm:w-44 sm:h-44 rounded-full p-1.5 bg-gradient-to-tr from-[#D31424] via-white to-[#0F172A] shadow-2xl logo-ripple flex items-center justify-center">
             <div className="w-full h-full rounded-full bg-white p-1 shadow-inner overflow-hidden flex items-center justify-center">
               <img
-                src="/tabira-logo.jpg"
+                src="./tabira-logo.jpg"
                 alt="TABIRA"
                 className="w-full h-full object-cover rounded-full"
                 onError={(e) => {
@@ -1558,7 +1558,7 @@ export default function App() {
               <div className="relative w-56 h-56 sm:w-72 sm:h-72 rounded-full p-2 bg-gradient-to-tr from-[#D31424] via-white/40 to-[#1E293B] shadow-2xl flex items-center justify-center backdrop-blur-md">
                 <div className="w-full h-full rounded-full bg-white p-1 shadow-inner overflow-hidden flex items-center justify-center">
                   <img
-                    src="/tabira-logo.jpg"
+                    src="./tabira-logo.jpg"
                     alt="TABIRA Logo"
                     className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-500"
                     onError={(e) => {
