@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { db } from './firebase';
+import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
 import {
   Search, CheckCircle2, XCircle, ChevronRight, ChevronLeft, X,
   Info, ShieldCheck, Flame, Bell, Wind, HardHat, Droplets,
@@ -1139,24 +1141,18 @@ const AdminPanel = ({ products, setProducts, adminHash, setAdminHash, exchangeRa
   const [q, setQ] = useState("");
   const saveToServer = async (productsData, hashVal, rateVal) => {
     try {
-      const payload = {
-        products: productsData,
-        config: {
+      if (productsData) {
+        await setDoc(doc(db, "catalog", "products"), { items: productsData });
+      }
+      if (hashVal !== undefined || rateVal !== undefined) {
+        await setDoc(doc(db, "catalog", "config"), {
           adminPasswordHash: hashVal,
           exchangeRate: rateVal
-        }
-      };
-      const res = await fetch('/api/save-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        throw new Error(`Failed to save database: ${res.statusText}`);
+        });
       }
     } catch (e) {
-      console.error("Failed to save changes:", e);
-      notify("حدث خطأ أثناء حفظ التعديلات على السيرفر", "error");
+      console.error("Failed to save changes to Firestore:", e);
+      notify("حدث خطأ أثناء حفظ التعديلات في قاعدة البيانات", "error");
     }
   };
 
@@ -1338,127 +1334,51 @@ export default function App() {
     setTimeout(() => setToast(null), 2800);
   };
 
-  const reloadData = async () => {
-    let p = [];
-    try {
-      const res = await fetch('./products.json');
-      if (res.ok) {
-        const parsed = await res.json();
-        if (Array.isArray(parsed) && parsed.length) {
-          p = parsed;
-          await safeStorage.set(PRODUCTS_KEY, JSON.stringify(p));
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to fetch products.json, falling back to local storage:", e);
-    }
-
-    if (!p.length) {
-      try {
-        const r = await safeStorage.get(PRODUCTS_KEY);
-        const parsed = JSON.parse(r.value);
-        if (Array.isArray(parsed) && parsed.length) p = parsed;
-      } catch {}
-    }
-
-    if (!p.length) {
-      p = generateMockData(1400);
-      await safeStorage.set(PRODUCTS_KEY, JSON.stringify(p));
-    }
-    setProducts(p);
-  };
-
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const fallbackHash = await sha256Hex(DEFAULT_ADMIN_PASSWORD);
-      let activeHash = fallbackHash;
-      let activeRate = DEFAULT_EXCHANGE_RATE;
 
-      try {
-        const configRes = await fetch('./config.json');
-        if (configRes.ok) {
-          const configData = await configRes.json();
-          if (configData.adminPasswordHash) {
-            activeHash = configData.adminPasswordHash;
-            await safeStorage.set(ADMIN_HASH_KEY, activeHash);
-          }
-          if (configData.exchangeRate) {
-            activeRate = Number(configData.exchangeRate);
-            await safeStorage.set(EXCHANGE_RATE_KEY, String(activeRate));
-          }
+    const unsubscribeConfig = onSnapshot(doc(db, "catalog", "config"), async (snapshot) => {
+      if (cancelled) return;
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.adminPasswordHash) setAdminHash(data.adminPasswordHash);
+        if (data.exchangeRate) setExchangeRate(Number(data.exchangeRate));
+      } else {
+        const fallbackHash = await sha256Hex(DEFAULT_ADMIN_PASSWORD);
+        await setDoc(doc(db, "catalog", "config"), {
+          adminPasswordHash: fallbackHash,
+          exchangeRate: DEFAULT_EXCHANGE_RATE
+        });
+      }
+    }, (error) => {
+      console.error("Error listening to config:", error);
+    });
+
+    const unsubscribeProducts = onSnapshot(doc(db, "catalog", "products"), async (snapshot) => {
+      if (cancelled) return;
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (Array.isArray(data.items)) {
+          setProducts(data.items);
+          setLoading(false);
         }
-      } catch (e) {
-        console.warn("Failed to fetch config.json, falling back to local storage:", e);
+      } else {
+        const defaultProducts = generateMockData(1400);
+        await setDoc(doc(db, "catalog", "products"), { items: defaultProducts });
+        if (!cancelled) {
+          setProducts(defaultProducts);
+          setLoading(false);
+        }
       }
-
-      if (!cancelled) {
-        setAdminHash(activeHash);
-        setExchangeRate(activeRate);
-      }
-
-      await reloadData();
-
-      try {
-        const r = await safeStorage.get(ADMIN_HASH_KEY);
-        if (r?.value && !cancelled) setAdminHash(r.value);
-      } catch {}
-
-      try {
-        const rateRes = await safeStorage.get(EXCHANGE_RATE_KEY);
-        const parsedRate = Number(rateRes?.value);
-        if (parsedRate && parsedRate > 0 && !cancelled) setExchangeRate(parsedRate);
-      } catch {}
-
-      if (!cancelled) {
-        setLoading(false);
-      }
-    })();
-
-    // BroadcastChannel multi-tab real-time sync
-    let bc;
-    if (typeof BroadcastChannel !== "undefined") {
-      try {
-        bc = new BroadcastChannel("tabira_channel");
-        bc.onmessage = (e) => {
-          if (e.data?.key === PRODUCTS_KEY && e.data?.value) {
-            try {
-              const updated = JSON.parse(e.data.value);
-              if (Array.isArray(updated)) setProducts(updated);
-            } catch { /* ignore */ }
-          }
-          if (e.data?.key === ADMIN_HASH_KEY && e.data?.value) {
-            setAdminHash(e.data.value);
-          }
-          if (e.data?.key === EXCHANGE_RATE_KEY && e.data?.value) {
-            const numRate = Number(e.data.value);
-            if (numRate > 0) setExchangeRate(numRate);
-          }
-        };
-      } catch { /* ignore */ }
-    }
-
-    const handleStorageChange = (e) => {
-      if (e.key === PRODUCTS_KEY && e.newValue) {
-        try {
-          const updated = JSON.parse(e.newValue);
-          if (Array.isArray(updated)) setProducts(updated);
-        } catch { /* ignore */ }
-      }
-      if (e.key === ADMIN_HASH_KEY && e.newValue) {
-        setAdminHash(e.newValue);
-      }
-      if (e.key === EXCHANGE_RATE_KEY && e.newValue) {
-        const numRate = Number(e.newValue);
-        if (numRate > 0) setExchangeRate(numRate);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
+    }, (error) => {
+      console.error("Error listening to products:", error);
+      if (!cancelled) setLoading(false);
+    });
 
     return () => {
       cancelled = true;
-      if (bc) bc.close();
-      window.removeEventListener('storage', handleStorageChange);
+      unsubscribeConfig();
+      unsubscribeProducts();
     };
   }, []);
 
